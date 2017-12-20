@@ -14,11 +14,94 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 #include <pthread.h>
 #include <system_error>
 #include <chrono>
 
 // TODO: print warning if accelerometer magnitude is not close to 1 when starting up
+
+FILE *open_filename(char *filename)
+{
+   FILE *new_handle = NULL;
+
+   if (filename)
+   {
+      bool bNetwork = false;
+      int sfd = -1, socktype;
+
+      if(!strncmp("tcp://", filename, 6))
+      {
+         bNetwork = true;
+         socktype = SOCK_STREAM;
+      }
+      else if(!strncmp("udp://", filename, 6))
+      {
+         bNetwork = true;
+         socktype = SOCK_DGRAM;
+      }
+
+      if(bNetwork)
+      {
+         unsigned short port;
+         filename += 6;
+         char *colon;
+         if(NULL == (colon = strchr(filename, ':')))
+         {
+            fprintf(stderr, "%s is not a valid IPv4:port, use something like tcp://1.2.3.4:1234 or udp://1.2.3.4:1234\n",
+                    filename);
+            exit(132);
+         }
+         if(1 != sscanf(colon + 1, "%hu", &port))
+         {
+            fprintf(stderr,
+                    "Port parse failed. %s is not a valid network file name, use something like tcp://1.2.3.4:1234 or udp://1.2.3.4:1234\n",
+                    filename);
+            exit(133);
+         }
+         char chTmp = *colon;
+         *colon = 0;
+
+         struct sockaddr_in saddr={};
+         saddr.sin_family = AF_INET;
+         saddr.sin_port = htons(port);
+         if(0 == inet_aton(filename, &saddr.sin_addr))
+         {
+            fprintf(stderr, "inet_aton failed. %s is not a valid IPv4 address\n",
+                    filename);
+            exit(134);
+         }
+         *colon = chTmp;
+
+         if(0 <= (sfd = socket(AF_INET, socktype, 0)))
+         {
+           fprintf(stderr, "Connecting to %s:%hu...", inet_ntoa(saddr.sin_addr), port);
+
+           int iTmp = 1;
+           while ((-1 == (iTmp = connect(sfd, (struct sockaddr *) &saddr, sizeof(struct sockaddr_in)))) && (EINTR == errno))
+             ;
+           if (iTmp < 0)
+             fprintf(stderr, "error: %s\n", strerror(errno));
+           else
+             fprintf(stderr, "connected, sending video...\n");
+         }
+         else
+           fprintf(stderr, "Error creating socket: %s\n", strerror(errno));
+
+         if (sfd >= 0)
+            new_handle = fdopen(sfd, "w");
+      }
+      else
+      {
+         new_handle = fopen(filename, "wb");
+      }
+   }
+
+   return new_handle;
+}  
 
 // An Euler angle could take 8 chars: -234.678, but usually we only need 6.
 float field_width = 6;
@@ -46,21 +129,21 @@ std::ostream & operator << (std::ostream & os, const quaternion & quat)
             << FLOAT_FORMAT << quat.z();
 }
 
-typedef void rotation_output_function(quaternion & rotation);
+typedef void rotation_output_function(quaternion & rotation, std::stringstream& ss);
 
-void output_quaternion(quaternion & rotation)
+void output_quaternion(quaternion & rotation, std::stringstream& ss)
 {
-  std::cout << rotation;
+  ss << rotation;
 }
 
-void output_matrix(quaternion & rotation)
+void output_matrix(quaternion & rotation, std::stringstream& ss)
 {
-  std::cout << rotation.toRotationMatrix();
+  ss << rotation.toRotationMatrix();
 }
 
-void output_euler(quaternion & rotation)
+void output_euler(quaternion & rotation, std::stringstream& ss)
 {
-  std::cout << (vector)(rotation.toRotationMatrix().eulerAngles(2, 1, 0)
+  ss << (vector)(rotation.toRotationMatrix().eulerAngles(2, 1, 0)
                         * (180 / M_PI));
 }
 
@@ -154,7 +237,8 @@ void fuse_default(quaternion & rotation, float dt, const vector & angular_veloci
   rotate(rotation, angular_velocity + correction, dt);
 }
 
-void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output)
+void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output, FILE *output_handle,
+          FILE *output_nb_handle)
 {
   imu.load_calibration();
   imu.enable();
@@ -169,6 +253,7 @@ void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output)
   loop_pacer.set_period_ns(20000000);
 
   auto start = std::chrono::steady_clock::now();
+  auto ref_start = std::chrono::steady_clock::now();
   while(1)
   {
     auto last_start = start;
@@ -183,9 +268,33 @@ void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output)
 
     fuse(rotation, dt, angular_velocity, acceleration, magnetic_field);
 
-    output(rotation);
-    std::cout << "  " << acceleration << "  " << magnetic_field << std::endl;
+    std::stringstream ss;
+    std::chrono::nanoseconds timestamp = std::chrono::steady_clock::now() - ref_start;
+    float timestamp_sec = timestamp.count() / 1e9;
+    ss << timestamp_sec << "  ";
+    output(rotation, ss);
+    ss << "  " << acceleration << "  " << magnetic_field << std::endl;
 
+    const std::string string_to_write = ss.str();
+    const int string_length = string_to_write.length();
+    int bytes_written = string_length;
+    // Output streams (blocking and non-blocking)
+    if (output_handle)
+    {
+      bytes_written = fwrite(string_to_write.c_str(), 1, string_length, output_handle);
+      fflush(output_handle);
+    }
+    if (output_nb_handle)
+    {
+      fwrite(string_to_write.c_str(), 1, string_length, output_nb_handle);
+      fflush(output_nb_handle);
+    }
+    
+    // Check blocking write
+    if (bytes_written != string_length)
+    {
+      std::cerr << "Blocking write was not successful" << std::endl;
+    }
     loop_pacer.pace();
   }
 }
@@ -259,6 +368,18 @@ int main_with_exceptions(int argc, char **argv)
     return 1;
   }
 
+  FILE *output_handle = NULL;
+  if (!options.output_file.empty())
+  {
+    output_handle = open_filename((char *) options.output_file.c_str());
+  }
+
+  FILE *output_nb_handle = NULL;
+  if (!options.output_file_nb.empty())
+  {
+    output_nb_handle = open_filename((char *) options.output_file_nb.c_str());
+  }
+  
   // Figure out the basic operating mode and start running.
   if (options.mode == "raw")
   {
@@ -266,15 +387,15 @@ int main_with_exceptions(int argc, char **argv)
   }
   else if (options.mode == "gyro-only")
   {
-    ahrs(imu, &fuse_gyro_only, output);
+    ahrs(imu, &fuse_gyro_only, output, output_handle, output_nb_handle);
   }
   else if (options.mode == "compass-only")
   {
-    ahrs(imu, &fuse_compass_only, output);
+    ahrs(imu, &fuse_compass_only, output, output_handle, output_nb_handle);
   }
   else if (options.mode == "normal")
   {
-    ahrs(imu, &fuse_default, output);
+    ahrs(imu, &fuse_default, output, output_handle, output_nb_handle);
   }
   else
   {

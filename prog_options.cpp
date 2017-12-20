@@ -45,6 +45,13 @@ static opts::options_description processing_options_desc(prog_options & options)
       "matrix: Direction Cosine Matrix.\n"
       "quaternion: Quaternion.\n"
       "euler: Euler angles (yaw, pitch, roll).\n")
+    ("output-file",
+      opts::value<std::string>(&options.output_file),
+      "output file (blocking)\n")
+    ("output-file-nb",
+      opts::value<std::string>(&options.output_file_nb),
+      "output file (non-blocking)\n"
+      "for udp: udp://xxx.xxx.xxx.xxx:xxxx\n")
     ;
   return desc;
 }
