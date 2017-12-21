@@ -76,7 +76,7 @@ FILE *open_filename(char *filename)
          }
          *colon = chTmp;
 
-         if(0 <= (sfd = socket(AF_INET, socktype, 0)))
+         if(0 <= (sfd = socket(AF_INET, socktype | SOCK_NONBLOCK, 0)))
          {
            fprintf(stderr, "Connecting to %s:%hu...", inet_ntoa(saddr.sin_addr), port);
 
