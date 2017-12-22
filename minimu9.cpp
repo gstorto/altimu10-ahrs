@@ -141,6 +141,23 @@ minimu9::comm_config minimu9::auto_detect(const std::string & i2c_bus_name)
     }
   }
 
+  // Detect LPS devices.
+  {
+    auto addrs = { lps::SA0_LOW_ADDR, lps::SA0_HIGH_ADDR };
+    for (uint8_t addr : addrs)
+    {
+      int result = bus.try_write_byte_and_read_byte(addr, lps::WHO_AM_I);
+      if (result == lps::LPS25H)
+      {
+        config.lps.use_sensor = true;
+        config.lps.device = (lps::device_type)result;
+        config.lps.i2c_bus_name = i2c_bus_name;
+        config.lps.i2c_address = (lps::i2c_addr)addr;
+        break;
+      }
+    }
+  }
+
   return config;
 }
 
@@ -244,6 +261,8 @@ void minimu9::handle::open(const comm_config & config)
   {
     l3g.open(config.l3g);
   }
+
+  lps.open(config.lps);
 }
 
 void minimu9::handle::enable()
@@ -267,6 +286,8 @@ void minimu9::handle::enable()
   {
     l3g.enable();
   }
+
+  lps.enable();
 }
 
 void minimu9::handle::load_calibration()
@@ -343,6 +364,13 @@ void minimu9::handle::read_gyro_raw()
   }
 }
 
+void minimu9::handle::read_altimeter_raw()
+{
+  lps.read_altimeter();
+  p = (float)lps.p / 4096;
+  t = 42.5 + (float)lps.t / 480;
+}
+
 float minimu9::handle::get_acc_scale() const
 {
   // Info about linear acceleration sensitivity from datasheets:
@@ -399,4 +427,15 @@ vector minimu9::handle::read_gyro()
 {
   read_gyro_raw();
   return (vector_from_ints(&g) - gyro_offset) * get_gyro_scale();
+}
+
+vector minimu9::handle::read_altimeter()
+{
+  read_altimeter_raw();
+  vector v;
+  // Altitude in meters (referenced to 1013.25 hPa)
+  v(0) = (float)(1 - pow(p / 1013.25, 0.190263)) * 44330.8;
+  // Temperature in celsius
+  v(1) = (float)t;
+  return v;
 }

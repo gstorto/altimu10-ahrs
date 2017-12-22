@@ -22,13 +22,18 @@ public:
   int32_t m[3];
   int32_t a[3];
   int32_t g[3];
+  // Pressure in mbar/hPa
+  float p;
+  // Temperature in celsius (C)
+  float t;
 
   // TODO: remove stuff below this point
 
   // Scaled readings
-  virtual vector read_mag() = 0;  // In body coords, scaled to -1..1 range
-  virtual vector read_acc() = 0;  // In body coords, with units = g
-  virtual vector read_gyro() = 0; // In body coords, with units = rad/sec
+  virtual vector read_mag() = 0;       // In body coords, scaled to -1..1 range
+  virtual vector read_acc() = 0;       // In body coords, with units = g
+  virtual vector read_gyro() = 0;      // In body coords, with units = rad/sec
+  virtual vector read_altimeter() = 0; // return (pressure, temperature)
   void read(){ read_mag(); read_acc(); read_gyro(); }
 
   virtual void measure_offsets() = 0;

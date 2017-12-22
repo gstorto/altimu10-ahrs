@@ -265,6 +265,7 @@ void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output, FI
     vector angular_velocity = imu.read_gyro();
     vector acceleration = imu.read_acc();
     vector magnetic_field = imu.read_mag();
+    vector altimeter_temp = imu.read_altimeter();
 
     fuse(rotation, dt, angular_velocity, acceleration, magnetic_field);
 
@@ -273,7 +274,8 @@ void ahrs(imu & imu, fuse_function * fuse, rotation_output_function * output, FI
     float timestamp_sec = timestamp.count() / 1e9;
     ss << timestamp_sec << "  ";
     output(rotation, ss);
-    ss << "  " << acceleration << "  " << magnetic_field << std::endl;
+    ss << "  " << acceleration << "  " << magnetic_field << "  " << altimeter_temp(0) << "  "
+       << altimeter_temp(1) << std::endl;
 
     const std::string string_to_write = ss.str();
     const int string_length = string_to_write.length();

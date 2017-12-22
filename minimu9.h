@@ -10,6 +10,7 @@
 #include "l3g.h"
 #include "lsm6.h"
 #include "lis3mdl.h"
+#include "lps.h"
 #include "sensor_set.h"
 
 namespace minimu9
@@ -20,6 +21,7 @@ namespace minimu9
     l3g::comm_config l3g;
     lis3mdl::comm_config lis3mdl;
     lsm6::comm_config lsm6;
+    lps::comm_config lps;
   };
 
   comm_config auto_detect(const std::string & i2c_bus_name);
@@ -37,10 +39,12 @@ namespace minimu9
     lis3mdl::handle lis3mdl;
     lsm303::handle lsm303;
     l3g::handle l3g;
+    lps::handle lps;
 
     virtual void read_acc_raw();
     virtual void read_mag_raw();
     virtual void read_gyro_raw();
+    virtual void read_altimeter_raw();
 
     virtual float get_acc_scale() const;
     virtual float get_gyro_scale() const;
@@ -48,6 +52,7 @@ namespace minimu9
     virtual vector read_acc();
     virtual vector read_mag();
     virtual vector read_gyro();
+    virtual vector read_altimeter();
 
     virtual void enable();
     virtual void load_calibration();
